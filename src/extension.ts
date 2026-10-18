@@ -1,26 +1,70 @@
-// The module 'vscode' contains the VS Code extensibility API
-// Import the module and reference it with the alias vscode in your code below
 import * as vscode from 'vscode';
 
-// This method is called when your extension is activated
-// Your extension is activated the very first time the command is executed
-export function activate(context: vscode.ExtensionContext) {
+class FunctionDropdownProvider implements vscode.CodeLensProvider {
+    async provideCodeLenses(document: vscode.TextDocument): Promise<vscode.CodeLens[]> {
+        const symbols = await vscode.commands.executeCommand<
+            (vscode.DocumentSymbol | vscode.SymbolInformation)[]
+        >('vscode.executeDocumentSymbolProvider', document.uri);
 
-	// Use the console to output diagnostic information (console.log) and errors (console.error)
-	// This line of code will only be executed once when your extension is activated
-	console.log('Congratulations, your extension "cyclomatic-complexity-estimator" is now active!');
+        if (!symbols || !Array.isArray(symbols)) {
+            return [];
+        }
 
-	// The command has been defined in the package.json file
-	// Now provide the implementation of the command with registerCommand
-	// The commandId parameter must match the command field in package.json
-	const disposable = vscode.commands.registerCommand('cyclomatic-complexity-estimator.helloWorld', () => {
-		// The code you place here will be executed every time your command is executed
-		// Display a message box to the user
-		vscode.window.showInformationMessage('Hello World from cyclomatic-complexity-estimator!');
-	});
+        const lenses: vscode.CodeLens[] = [];
 
-	context.subscriptions.push(disposable);
+        const findFunctions = (items: (vscode.DocumentSymbol | vscode.SymbolInformation)[]) => {
+            for (const item of items) {
+                if (
+                    item.kind === vscode.SymbolKind.Function ||
+                    item.kind === vscode.SymbolKind.Method
+                ) {
+                    const range = 'range' in item ? item.range : item.location.range;
+
+                    lenses.push(
+                        new vscode.CodeLens(range, {
+                            title: `$(chevron-down) Действия: ${item.name}`,
+                            command: 'cyclomatic-complexity-estimator.openDropdown',
+                            arguments: [item.name, range]
+                        })
+                    );
+                }
+
+                if ('children' in item && Array.isArray(item.children) && item.children.length > 0) {
+                    findFunctions(item.children);
+                }
+            }
+        };
+
+        findFunctions(symbols);
+        return lenses;
+    }
 }
 
-// This method is called when your extension is deactivated
+export function activate(context: vscode.ExtensionContext) {
+    const command = vscode.commands.registerCommand(
+        'cyclomatic-complexity-estimator.openDropdown',
+        async (fnName: string, range: vscode.Range) => {
+            const selected = await vscode.window.showQuickPick(
+                ['Estimate complexity'],
+                { placeHolder: `Pick action for ${fnName}` }
+            );
+
+            if (selected === 'Оценить сложность') {
+                const editor = vscode.window.activeTextEditor;
+                if (editor && range) {
+                    const fnCode = editor.document.getText(range);
+                    vscode.window.showInformationMessage(`Length: ${fnName}: ${fnCode.length}`);
+                }
+            }
+        }
+    );
+
+    const lensProvider = vscode.languages.registerCodeLensProvider(
+        { scheme: 'file' },
+        new FunctionDropdownProvider()
+    );
+
+    context.subscriptions.push(command, lensProvider);
+}
+
 export function deactivate() {}

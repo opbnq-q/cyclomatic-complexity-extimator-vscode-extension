@@ -14,8 +14,8 @@
   "contributes": {
     "commands": [
       {
-        "command": "cyclomatic-complexity-estimator.helloWorld",
-        "title": "Hello World"
+        "command": "cyclomatic-complexity-estimator.openDropdown",
+        "title": "Open Dropdown"
       }
     ]
   },
