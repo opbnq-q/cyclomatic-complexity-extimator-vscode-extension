@@ -1,4 +1,70 @@
 import * as vscode from 'vscode';
+import * as tsParser from '@typescript-eslint/parser';
+
+type Node = {
+    type: string;
+    [key: string]: any;
+};
+
+function getComplexity(code: string): number | null {
+    try {
+        const ast = tsParser.parse(code, {
+            ecmaVersion: 'latest',
+            sourceType: 'module',
+            range: true
+        }) as unknown as Node;
+
+        let complexity = 1;
+
+        function visit(node: Node | null | undefined): void {
+            if (!node || typeof node !== 'object') { 
+                return; 
+            }
+
+            switch (node.type) {
+                case 'IfStatement':
+                case 'ForStatement':
+                case 'ForInStatement':
+                case 'ForOfStatement':
+                case 'WhileStatement':
+                case 'DoWhileStatement':
+                case 'CatchClause':
+                case 'ConditionalExpression':
+                    complexity++;
+                    break;
+
+                case 'LogicalExpression':
+                    if (node.operator === '&&' || node.operator === '||' || node.operator === '??') {
+                        complexity++;
+                    }
+                    break;
+
+                case 'SwitchCase':
+                    if (node.test) { complexity++; }
+                    break;
+            }
+
+            for (const [key, value] of Object.entries(node)) {
+                if (key === 'parent' || key === 'loc' || key === 'range') { continue; }
+
+                if (Array.isArray(value)) {
+                    for (const child of value) {
+                        if (child && typeof child === 'object') {
+                            visit(child as Node);
+                        }
+                    }
+                } else if (value && typeof value === 'object') {
+                    visit(value as Node);
+                }
+            }
+        }
+
+        visit(ast);
+        return complexity;
+    } catch {
+        return null;
+    }
+}
 
 class FunctionDropdownProvider implements vscode.CodeLensProvider {
     async provideCodeLenses(document: vscode.TextDocument): Promise<vscode.CodeLens[]> {
@@ -6,36 +72,43 @@ class FunctionDropdownProvider implements vscode.CodeLensProvider {
             (vscode.DocumentSymbol | vscode.SymbolInformation)[]
         >('vscode.executeDocumentSymbolProvider', document.uri);
 
-        if (!symbols || !Array.isArray(symbols)) {
-            return [];
+        if (!symbols) { 
+            return []; 
         }
 
         const lenses: vscode.CodeLens[] = [];
 
-        const findFunctions = (items: (vscode.DocumentSymbol | vscode.SymbolInformation)[]) => {
+        const visit = (items: (vscode.DocumentSymbol | vscode.SymbolInformation)[]) => {
             for (const item of items) {
-                if (
-                    item.kind === vscode.SymbolKind.Function ||
-                    item.kind === vscode.SymbolKind.Method
-                ) {
-                    const range = 'range' in item ? item.range : item.location.range;
+                const range = 'location' in item ? item.location.range : item.range;
+                const code = document.getText(range);
 
-                    lenses.push(
-                        new vscode.CodeLens(range, {
-                            title: `$(chevron-down) Действия: ${item.name}`,
-                            command: 'cyclomatic-complexity-estimator.openDropdown',
-                            arguments: [item.name, range]
-                        })
-                    );
+                const isFunction = [
+                    vscode.SymbolKind.Function,
+                    vscode.SymbolKind.Method,
+                    vscode.SymbolKind.Constructor
+                ].includes(item.kind);
+
+                const isVariable = [
+                    vscode.SymbolKind.Variable,
+                    vscode.SymbolKind.Constant,
+                    vscode.SymbolKind.Property,
+                    vscode.SymbolKind.Field
+                ].includes(item.kind);
+
+                if (isFunction || (isVariable && code.includes('=>'))) {
+                    lenses.push(new vscode.CodeLens(range, {
+                        title: `actions: ${item.name}`,
+                        command: 'cyclomatic-complexity-estimator.openDropdown',
+                        arguments: [item.name, range]
+                    }));
                 }
 
-                if ('children' in item && Array.isArray(item.children) && item.children.length > 0) {
-                    findFunctions(item.children);
-                }
+                if ('children' in item) { visit(item.children); }
             }
         };
 
-        findFunctions(symbols);
+        visit(symbols);
         return lenses;
     }
 }
@@ -43,28 +116,40 @@ class FunctionDropdownProvider implements vscode.CodeLensProvider {
 export function activate(context: vscode.ExtensionContext) {
     const command = vscode.commands.registerCommand(
         'cyclomatic-complexity-estimator.openDropdown',
-        async (fnName: string, range: vscode.Range) => {
+        async (name: string, range: vscode.Range) => {
             const selected = await vscode.window.showQuickPick(
                 ['Estimate complexity'],
-                { placeHolder: `Pick action for ${fnName}` }
+                { placeHolder: `Select action for ${name}` }
             );
 
-            if (selected === 'Оценить сложность') {
-                const editor = vscode.window.activeTextEditor;
-                if (editor && range) {
-                    const fnCode = editor.document.getText(range);
-                    vscode.window.showInformationMessage(`Length: ${fnName}: ${fnCode.length}`);
-                }
+            if (selected !== 'Estimate complexity') { 
+                return; 
             }
+
+            const editor = vscode.window.activeTextEditor;
+            if (!editor) { 
+                return; 
+            }
+
+            const complexity = getComplexity(editor.document.getText(range));
+
+            if (complexity === null) {
+                vscode.window.showErrorMessage('Unable to parse function');
+                return;
+            }
+
+            vscode.window.showInformationMessage(
+                `Cyclomatic complexity: ${complexity}`
+            );
         }
     );
 
-    const lensProvider = vscode.languages.registerCodeLensProvider(
+    const provider = vscode.languages.registerCodeLensProvider(
         { scheme: 'file' },
         new FunctionDropdownProvider()
     );
 
-    context.subscriptions.push(command, lensProvider);
+    context.subscriptions.push(command, provider);
 }
 
-export function deactivate() {}
+export function deactivate() { }
