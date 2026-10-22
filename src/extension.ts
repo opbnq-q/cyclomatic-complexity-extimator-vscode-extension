@@ -6,6 +6,11 @@ type Node = {
     [key: string]: any;
 };
 
+/**
+ * Calculates cyclomatic complexity by traversing the TypeScript AST.
+ * @param code Source code to analyze.
+ * @returns Complexity score or null if parsing fails.
+ */
 function getComplexity(code: string): number | null {
     try {
         const ast = tsParser.parse(code, {
@@ -17,8 +22,8 @@ function getComplexity(code: string): number | null {
         let complexity = 1;
 
         function visit(node: Node | null | undefined): void {
-            if (!node || typeof node !== 'object') { 
-                return; 
+            if (!node || typeof node !== 'object') {
+                return;
             }
 
             switch (node.type) {
@@ -40,12 +45,16 @@ function getComplexity(code: string): number | null {
                     break;
 
                 case 'SwitchCase':
-                    if (node.test) { complexity++; }
+                    if (node.test) {
+                        complexity++;
+                    }
                     break;
             }
 
             for (const [key, value] of Object.entries(node)) {
-                if (key === 'parent' || key === 'loc' || key === 'range') { continue; }
+                if (key === 'parent' || key === 'loc' || key === 'range') {
+                    continue;
+                }
 
                 if (Array.isArray(value)) {
                     for (const child of value) {
@@ -66,14 +75,22 @@ function getComplexity(code: string): number | null {
     }
 }
 
+/**
+ * Provides CodeLens actions for functions and arrow functions in a document.
+ */
 class FunctionDropdownProvider implements vscode.CodeLensProvider {
+    /**
+     * Finds function symbols and adds a CodeLens action to each one.
+     * @param document Document to analyze.
+     * @returns CodeLens actions for detected functions.
+     */
     async provideCodeLenses(document: vscode.TextDocument): Promise<vscode.CodeLens[]> {
         const symbols = await vscode.commands.executeCommand<
             (vscode.DocumentSymbol | vscode.SymbolInformation)[]
         >('vscode.executeDocumentSymbolProvider', document.uri);
 
-        if (!symbols) { 
-            return []; 
+        if (!symbols) {
+            return [];
         }
 
         const lenses: vscode.CodeLens[] = [];
@@ -104,7 +121,9 @@ class FunctionDropdownProvider implements vscode.CodeLensProvider {
                     }));
                 }
 
-                if ('children' in item) { visit(item.children); }
+                if ('children' in item) {
+                    visit(item.children);
+                }
             }
         };
 
@@ -113,6 +132,10 @@ class FunctionDropdownProvider implements vscode.CodeLensProvider {
     }
 }
 
+/**
+ * Activates the extension and registers its commands and CodeLens provider.
+ * @param context VS Code extension context.
+ */
 export function activate(context: vscode.ExtensionContext) {
     const command = vscode.commands.registerCommand(
         'cyclomatic-complexity-estimator.openDropdown',
@@ -122,13 +145,13 @@ export function activate(context: vscode.ExtensionContext) {
                 { placeHolder: `Select action for ${name}` }
             );
 
-            if (selected !== 'Estimate complexity') { 
-                return; 
+            if (selected !== 'Estimate complexity') {
+                return;
             }
 
             const editor = vscode.window.activeTextEditor;
-            if (!editor) { 
-                return; 
+            if (!editor) {
+                return;
             }
 
             const complexity = getComplexity(editor.document.getText(range));
@@ -152,4 +175,7 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(command, provider);
 }
 
-export function deactivate() { }
+/**
+ * Deactivates the extension.
+ */
+export function deactivate() {}
