@@ -37,7 +37,7 @@
     "check-types": "tsc --noEmit",
     "lint": "eslint src",
     "test": "vscode-test",
-    "docs": "typedoc --entryPointStrategy expand --entryPoints src --out docs/docs.md"
+    "docs": "typedoc --entryPointStrategy expand --entryPoints src --out docs/"
   },
   "devDependencies": {
     "@types/eslint": "^9.6.1",
